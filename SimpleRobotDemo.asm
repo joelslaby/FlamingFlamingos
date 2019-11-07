@@ -74,28 +74,33 @@ Main:
 	; If you want to take manual control of the robot,
 	; execute CLI &B0010 to disable the timer interrupt.
 
-	
-MoveForwardInit:
+;Initializes sonars	
+InitSonar:
 	LOAD MASK0 			;loads sensor 0
 	OR MASK2 			;loads sensor 2
 	OR MASK3 			;loads sensor 3
 	OR MASK5 			;loads sensor 5
 	OUT SONAREN 		;enables sonar sensors 0,2,3,5
 
+;Moves robot forward at medium speed
 MoveForward:
 	LOAD FMid			;loads medium forward velocity
 	STORE DVel			;sets forward speed
-	
-ObstacleAvoidance:
+
+;checks for reflectors in front of bot		
+FrontRefCheck:
 	IN DIST2			;read sonar 2
 	SUB Ft2				;subtract 2 ft
-	JNEG AboveObjectAvoidance			;kill robot if obstacle too close
+	JNEG UpRefAvoid		;kill robot if obstacle too close
 	IN DIST3			;read sonar 3
 	SUB Ft2 			;subtract 2ft
-	JNEG AboveObjectAvoidance			;kill robot if obstacle too close
-	JUMP MoveForward
-	
-AboveObjectAvoidance:
+	JNEG DownRefAvoid	;kill robot if obstacle too close
+	JUMP FrontRefCheck	;Loop if nothing is detected in front of bot
+		
+;avoidance method for reflector in front detected by sensor 2
+;turns 90, moves 1ft, turns back 90		
+UpRefAvoid:
+	;Turn -90deg
 	LOAD Zero			;Load zero for velocity
 	STORE DVel			;store velocity as zero
 	IN Theta			;read theta value
@@ -103,51 +108,85 @@ AboveObjectAvoidance:
 	STORE DTheta		;store as desired angle
 	CALL TurnCW90Loop   ;call function that turns bot 90deg CW
 	
+	;go forward 1ft
 	LOAD FMid			;Load zero for velocity
-	STORE DVel			;store velocity as zero
-		
+	STORE DVel			;store velocity as zero		
 	IN YPos				;read current y coord
 	SUB Ft1				;subtract 1ft
-	STORE Ydest			;store y destination
+	STORE Ydest			;store y destination	
+	CALL DodgeDown		;call function that moves bot 1ft
 	
-	CALL DodgeForward	;call function that moves bot 1ft
-	
+	;Turn 90deg
 	LOAD Zero			;Load zero for velocity
 	STORE DVel			;store velocity as zero
 	IN Theta			;read theta value
-	ADDI 90				;subtract 90
+	ADDI 90				;add 90deg
 	STORE DTheta		;store as desired angle
-	CALL TurnCCW90Loop   ;call function that turns bot 90deg CW
+	CALL TurnCCW90Loop  ;call function that turns bot 90deg CCW
 	
-	JUMP Die
+	JUMP MoveForward	;continues with move forward function
 
-Ydest: DW 0
-
+;avoidance method for reflector in front detected by sensor 3
+;turns 90, moves 1ft, turns back 90		
+DownRefAvoid:
+	;Turn 90deg
+	LOAD Zero			;Load zero for velocity
+	STORE DVel			;store velocity as zero
+	IN Theta			;read theta value
+	ADDI 90				;add 90
+	STORE DTheta		;store as desired angle
+	CALL TurnCCW90Loop  ;call function that turns bot 90deg CCW
+	
+	;go forward 1ft
+	LOAD FMid			;Load zero for velocity
+	STORE DVel			;store velocity as zero		
+	IN YPos				;read current y coord
+	ADD Ft1				;add 1ft
+	STORE Ydest			;store y destination	
+	CALL DodgeUp		;call function that moves bot 1ft
+	
+	;Turn 90deg
+	LOAD Zero			;Load zero for velocity
+	STORE DVel			;store velocity as zero
+	IN Theta			;read theta value
+	ADDI -90			;subtract 90deg
+	STORE DTheta		;store as desired angle
+	CALL TurnCW90Loop   ;call function that turns bot 90deg CW
+	
+	JUMP MoveForward	;continues with move forward function	
+	
+;Rotates the bot 90deg Clockwise		
 TurnCW90Loop:
-	CALL   GetThetaErr
-	CALL   Abs         ; get abs(currentAngle - 90)
-	ADDI   -3
-	JPOS   TurnCW90Loop    ; if angle error > 3, keep checking
+	CALL   GetThetaErr	;gets the difference between Theta and DTheta
+	CALL   Abs         	;get abs(currentAngle - 90)
+	ADDI   -3			;Error within 3deg
+	JPOS   TurnCW90Loop ;if angle error > 3, keep checking
 	RETURN
-	
-DodgeForward:
-	IN YPos
-	SUB Ydest
-	ADDI -10
-	OUT SSEG1
-	JPOS DodgeForward
-	RETURN
-	
+
+;Rotates the bot 90deg Counter Clockwise				
 TurnCCW90Loop:
-	CALL   GetThetaErr
-	CALL   Abs         ; get abs(currentAngle - 90)
-	ADDI   -3
-	JPOS   TurnCCW90Loop    ; if angle error > 3, keep checking
+	CALL GetThetaErr	;gets the difference between Theta and DTheta
+	CALL Abs         	;get abs(currentAngle - 90)
+	ADDI -3				;Error within 3deg
+	JPOS TurnCCW90Loop 	;if angle error > 3, keep checking
+	RETURN
+		
+;Moves the bot 1ft down		
+DodgeDown:
+	IN YPos				;Reads current yPos
+	SUB Ydest			;Subtracts desired yPos
+	JPOS DodgeForward	;Loops until yPos has moved to yDest
+	RETURN
+
+;Moves the bot 1ft up	
+DodgeUp:
+	IN YPos				;Reads current yPos
+	SUB Ydest			;Subtracts desired yPos
+	JNEG DodgeForward	;Loops until yPos has moved to yDest
 	RETURN
 	
-	; at this point, robot should be within 3 degrees of 90
-	LOAD   FMid
-	STORE  DVel        ; use API to move forward
+;Variables Used
+Ydest: DW 0
 
 InfLoop: 
 	JUMP   InfLoop
