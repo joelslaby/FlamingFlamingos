@@ -73,32 +73,78 @@ Main:
 	; code in that ISR will attempt to control the robot.
 	; If you want to take manual control of the robot,
 	; execute CLI &B0010 to disable the timer interrupt.
+
 	
-Start:
-	LOADI &b00111100  ;used to enable sonar 2-5
-	OUT SONAREN ;enables sonar sensors 2-5
-	IN DIST2 ;look at sonar 2 value
-	SUB Ft2 ;subtract 2ft
-	JNEG Die 
-	IN DIST3
-	SUB Ft2 ;subtract 2ft
-	JNEG Die
-	IN DIST4
-	SUB Ft2 ;subtract 2ft
-	JNEG Die
-	IN DIST5
-	SUB Ft2 ;subtract 2ft
-	JNEG Die
-	LOAD Fmid
-	STORE DVel
+MoveForwardInit:
+	LOAD MASK0 			;loads sensor 0
+	OR MASK2 			;loads sensor 2
+	OR MASK3 			;loads sensor 3
+	OR MASK5 			;loads sensor 5
+	OUT SONAREN 		;enables sonar sensors 0,2,3,5
+
+MoveForward:
+	LOAD FMid			;loads medium forward velocity
+	STORE DVel			;sets forward speed
 	
+ObstacleAvoidance:
+	IN DIST2			;read sonar 2
+	SUB Ft2				;subtract 2 ft
+	JNEG AboveObjectAvoidance			;kill robot if obstacle too close
+	IN DIST3			;read sonar 3
+	SUB Ft2 			;subtract 2ft
+	JNEG AboveObjectAvoidance			;kill robot if obstacle too close
+	JUMP MoveForward
 	
-TurnLoop:
-	IN     Theta
-	ADDI   -90
+AboveObjectAvoidance:
+	LOAD Zero			;Load zero for velocity
+	STORE DVel			;store velocity as zero
+	IN Theta			;read theta value
+	ADDI -90			;subtract 90
+	STORE DTheta		;store as desired angle
+	CALL TurnCW90Loop   ;call function that turns bot 90deg CW
+	
+	LOAD FMid			;Load zero for velocity
+	STORE DVel			;store velocity as zero
+		
+	IN YPos				;read current y coord
+	SUB Ft1				;subtract 1ft
+	STORE Ydest			;store y destination
+	
+	CALL DodgeForward	;call function that moves bot 1ft
+	
+	LOAD Zero			;Load zero for velocity
+	STORE DVel			;store velocity as zero
+	IN Theta			;read theta value
+	ADDI 90				;subtract 90
+	STORE DTheta		;store as desired angle
+	CALL TurnCCW90Loop   ;call function that turns bot 90deg CW
+	
+	JUMP Die
+
+Ydest: DW 0
+
+TurnCW90Loop:
+	CALL   GetThetaErr
 	CALL   Abs         ; get abs(currentAngle - 90)
 	ADDI   -3
-	JPOS   TurnLoop    ; if angle error > 3, keep checking
+	JPOS   TurnCW90Loop    ; if angle error > 3, keep checking
+	RETURN
+	
+DodgeForward:
+	IN YPos
+	SUB Ydest
+	ADDI -10
+	OUT SSEG1
+	JPOS DodgeForward
+	RETURN
+	
+TurnCCW90Loop:
+	CALL   GetThetaErr
+	CALL   Abs         ; get abs(currentAngle - 90)
+	ADDI   -3
+	JPOS   TurnCCW90Loop    ; if angle error > 3, keep checking
+	RETURN
+	
 	; at this point, robot should be within 3 degrees of 90
 	LOAD   FMid
 	STORE  DVel        ; use API to move forward
@@ -714,6 +760,7 @@ LowNibl:  DW &HF       ; 0000 0000 0000 1111
 ; some useful movement values
 OneMeter: DW 961       ; ~1m in 1.04mm units
 HalfMeter: DW 481      ; ~0.5m in 1.04mm units
+Ft1:	  DW 293
 Ft2:      DW 586       ; ~2ft in 1.04mm units
 Ft3:      DW 879
 Ft4:      DW 1172
