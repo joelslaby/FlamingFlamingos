@@ -83,11 +83,30 @@ InitSonar:
 	OUT SONAREN 		;enables sonar sensors 0,2,3,5
 
 ;Moves robot forward at medium speed
-MoveForward:
+InitSpeed:
 	LOAD FMid			;loads medium forward velocity
 	STORE DVel			;sets forward speed
 
-;checks for reflectors in front of bot		
+;initializes max ranges to find reflectors based on current y position
+InitRefMax:
+	IN YPOS				;reads current y position
+	CALL NEG			;-Y
+	ADD Ft5				;5-Y
+	STORE topMax		;max sensor reading for upper reflectors
+	IN YPOS				;reads current y position
+	ADD Ft3				;3+Y
+	STORE bottomMax		;max sensor reading for upper reflectors
+
+;checks for reflectors on the side of bot
+CheckVertical:
+	IN DIST0			;sensor reading of upper half
+	SUB topMax			;subtract maximum distance top reflector could be
+	JNEG upRefFound		;upper reflector found
+	IN DIST5			;sensor reading of lower half
+	SUB bottomMax		;subtract maximum distance bottom reflector could be
+	JNEG downRefFound	;lower reflector found
+
+;checks for reflectors in front of bot
 FrontRefCheck:
 	IN DIST2			;read sonar 2
 	SUB Ft2				;subtract 2 ft
@@ -95,7 +114,14 @@ FrontRefCheck:
 	IN DIST3			;read sonar 3
 	SUB Ft2 			;subtract 2ft
 	JNEG DownRefAvoid	;kill robot if obstacle too close
-	JUMP FrontRefCheck	;Loop if nothing is detected in front of bot
+	JUMP CheckVertical	;Loop if nothing is detected in front of bot
+
+topMax: DW Ft5
+bottomMax: DW Ft3
+	
+;***************************************************************
+;* Reflector Avoidance Functions
+;***************************************************************
 		
 ;avoidance method for reflector in front detected by sensor 2
 ;turns 90, moves 1ft, turns back 90		
@@ -124,7 +150,7 @@ UpRefAvoid:
 	STORE DTheta		;store as desired angle
 	CALL TurnCCW90Loop  ;call function that turns bot 90deg CCW
 	
-	JUMP MoveForward	;continues with move forward function
+	JUMP InitSpeed		;continues with move forward function
 
 ;avoidance method for reflector in front detected by sensor 3
 ;turns 90, moves 1ft, turns back 90		
@@ -145,7 +171,7 @@ DownRefAvoid:
 	STORE Ydest			;store y destination	
 	CALL DodgeUp		;call function that moves bot 1ft
 	
-	;Turn 90deg
+	;Turn -90deg
 	LOAD Zero			;Load zero for velocity
 	STORE DVel			;store velocity as zero
 	IN Theta			;read theta value
@@ -153,7 +179,7 @@ DownRefAvoid:
 	STORE DTheta		;store as desired angle
 	CALL TurnCW90Loop   ;call function that turns bot 90deg CW
 	
-	JUMP MoveForward	;continues with move forward function	
+	JUMP InitSpeed		;continues with move forward function	
 	
 ;Rotates the bot 90deg Clockwise		
 TurnCW90Loop:
@@ -175,18 +201,201 @@ TurnCCW90Loop:
 DodgeDown:
 	IN YPos				;Reads current yPos
 	SUB Ydest			;Subtracts desired yPos
-	JPOS DodgeForward	;Loops until yPos has moved to yDest
+	JPOS DodgeDown		;Loops until yPos has moved to yDest
 	RETURN
 
 ;Moves the bot 1ft up	
 DodgeUp:
 	IN YPos				;Reads current yPos
 	SUB Ydest			;Subtracts desired yPos
-	JNEG DodgeForward	;Loops until yPos has moved to yDest
+	JNEG DodgeUp		;Loops until yPos has moved to yDest
 	RETURN
 	
 ;Variables Used
 Ydest: DW 0
+
+
+; ---------------------------------
+; Functions that move towards reflector
+; ---------------------------------
+
+UpRefFound:
+	;Turn 90deg
+	LOAD Zero			;Load zero for velocity
+	STORE DVel			;store velocity as zero
+	IN Theta			;read theta value
+	ADDI 90				;add 90
+	STORE DTheta		;store as desired angle
+	CALL TurnCCW90Loop  ;call function that turns bot 90deg CCW
+	LOAD	FMid
+	STORE	DVel
+	JUMP	DETECTREF
+	
+DownRefFound:
+	LOAD Zero			;Load zero for velocity
+	STORE DVel			;store velocity as zero
+	IN Theta			;read theta value
+	ADDI -90			;subtract 90deg
+	STORE DTheta		;store as desired angle
+	CALL TurnCW90Loop   ;call function that turns bot 90deg CW
+	LOAD	FMid
+	STORE	DVel
+	JUMP	DETECTREF
+
+DETECTREF:
+	LOADI	12
+	STORE	TURNANGLE
+	LOAD	Mask0
+	STORE	SONAREN
+	LOAD	DIST0
+	SUB		Ft3
+	JZERO	FACEREF
+	JNEG	FACEREF
+	
+	LOADI	-12
+	STORE	TURNANGLE
+	LOAD	Mask2
+	STORE	SONAREN
+	LOAD	DIST2
+	SUB		Ft3
+	JZERO	FACEREF
+	JNEG	FACEREF
+	
+	LOADI	-12
+	STORE	TURNANGLE
+	LOAD	Mask5
+	STORE	SONAREN
+	LOAD	DIST3
+	SUB		Ft3
+	JZERO	FACEREF
+	JNEG	FACEREF
+	
+	JUMP	DETECTREF
+	
+FACEREF:	
+	LOAD	Zero	;STOP MOTION OF BOT
+	STORE	DVel
+	
+	LOAD	Mask2	;ENABLE SENSOR NO. 2
+	OUT		SONAREN
+	
+	LOAD	Zero
+	OUT		TIMER
+	IN		DIST2	;CHECK IF SENSOR IS 3 FT AWAY FROM OBJECT; IF IT IS,
+	SUB		Ft3		;THEN JUMP TO MOVEFORWARD SUBROUTINE; OTHERWISE FALL THROUGH
+	JNEG	STOPANDCHECK
+	JZERO	STOPANDCHECK
+	
+	IN		THETA	;ROTATE 5 DEGREES CLOCKWISE
+	;ADD	TURNANGLE
+	ADDI	-12
+	STORE	DTheta
+	JUMP	FACEREF	;RESTART SUBROUTINE UNTIL SENSOR IS ALIGNED WITH REFLECTOR
+	
+STOPANDCHECK:
+	LOAD	Zero
+	STORE	DVel
+	
+	CALL	DISTCHECK
+	JUMP	MOVEFORWARD
+
+MOVEFORWARD:
+	LOAD	FSlow
+	ADDI	50		;MOVE FORWARD AT MEDIUM-SLOW SPEED
+	STORE	DVel
+
+	IN		TIMER
+	ADDI	-10
+	JPOS	ROTATE
+	JUMP	MOVEFORWARD
+	
+DISTCHECK:
+	IN		DIST2	;LOAD DISTANCE GIVEN BY SENSOR NO. 2
+	ADDI	-440	;CHECK IF APPROXIMATELY 1.5 FEET AWAY FROM REFLECTOR
+	JZERO	FINALDIST
+	JNEG	FINALDIST
+	RETURN
+
+	
+ROTATE:
+
+	LOAD	Mask2	;ENABLE SENSOR NO. 2
+	OUT		SONAREN
+	
+	LOAD	Zero
+	STORE	DVel
+	
+	IN		THETA	;TURN 36 DEGREES CLOCKWISE TO ALIGN SENSOR NO. 2 WITH REFLECTOR
+	ADDI	36
+	STORE	DTheta
+	
+	CALL	DISTCHECK
+
+	CALL	WAIT1
+	JUMP	ROTCOR
+
+ROTCOR:
+	
+	IN		THETA	;TURN 36 DEGREES COUNTER CLOCKWISE TO ALIGN FORWARD WITH REFLECTOR
+	ADDI	-36
+	STORE	DTheta
+	
+	CALL	DISTCHECK
+	
+	LOAD	Zero
+	OUT		TIMER
+	
+	JUMP	MOVEFORWARD
+	
+FINALDIST:
+	
+	IN		DIST2
+	ADDI	-300
+	JNEG	REVERSE
+	JPOS	PERPALIGN
+
+REVERSE:
+
+	LOADI	-75
+	STORE	DVel
+	
+	JUMP	FINALDIST
+
+PERPALIGN:
+
+	LOAD	Zero
+	STORE	DVel	
+		
+	LOAD	Mask5	;TURN ON SENSOR NO. 5
+	OUT		SONAREN
+	
+	IN		THETA	;ROTATE 24 DEGREES CLOCKWISE
+	ADDI	24
+	STORE	DTheta
+	
+	IN		DIST5;
+	ADDI	-470
+	JNEG	STOP
+	JZERO	STOP
+	JUMP	PERPALIGN	
+	
+STOP:
+	LOAD	Zero	;STOPGAP: STOP BOT
+	STORE	DVel
+
+	LOAD	Mask5	;TURN ON SENSOR NO. 5
+	OUT		SONAREN
+	JUMP	Die ;JUMP StartCircle
+		
+TURNANGLE:	DW	0
+
+; -------------------------------------------
+; NATHAN's CODE BEGINS
+; -------------------------------------------
+
+; -------------------------------------------
+; CODE ENDS
+; -------------------------------------------
 
 InfLoop: 
 	JUMP   InfLoop
@@ -803,6 +1012,8 @@ Ft1:	  DW 293
 Ft2:      DW 586       ; ~2ft in 1.04mm units
 Ft3:      DW 879
 Ft4:      DW 1172
+Ft5:	  DW 1465
+Ft8:	  DW 2344
 Deg90:    DW 90        ; 90 degrees in odometer units
 Deg180:   DW 180       ; 180
 Deg270:   DW 270       ; 270
